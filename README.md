@@ -7,7 +7,7 @@
 </p>
 <p align="center">
   <a href="https://developers.google.com/google-ads/api/docs/release-notes">
-    <img src="https://img.shields.io/badge/google%20ads-v23-009688.svg?style=flat-square">
+    <img src="https://img.shields.io/badge/google%20ads-v25.1-009688.svg?style=flat-square">
   </a>
   <a href="https://www.npmjs.com/package/google-ads-api">
     <img src="https://img.shields.io/npm/v/google-ads-api.svg?style=flat-square">
@@ -35,6 +35,8 @@
 ```bash
 npm install google-ads-api
 ```
+
+Requires Node.js 22 or newer. Both `import { GoogleAdsApi } from "google-ads-api"` (ES modules) and `require("google-ads-api")` (CommonJS) are supported. `google-ads-api/enums` and `google-ads-api/fields` expose the generated enums and field types without loading the gRPC service clients.
 
 # Usage
 
@@ -70,6 +72,12 @@ const client = new GoogleAdsApi({
 ```
 
 `developer_token` is optional. Since September 2026 the Google Ads API attaches access levels to the Google Cloud project that owns the OAuth client rather than to a developer token, and ignores the token when it is sent. Existing configurations that still pass `developer_token` keep working; the header is only omitted when the option is absent.
+
+Optional client settings:
+
+- `grpc_channel_options`: [gRPC channel options](https://github.com/grpc/grpc-node/tree/master/packages/grpc-js#supported-channel-options) applied to every service client this instance creates, for example `{ "grpc.keepalive_time_ms": 30000, "grpc.keepalive_timeout_ms": 10000 }`. Cached service clients are keyed by client id, refresh token and these options, so instances with different options never share a client.
+- `max_reporting_rows`: throw once a report or query returns more rows than this.
+- `disable_parsing`: return raw API responses instead of parsed rows.
 
 ---
 
@@ -714,3 +722,11 @@ try {
 8. Test with `yarn test`.
 9. Test by linking to a real project and making some real requests.
 10. Once confident, bump the major version & publish to NPM.
+
+# About Opteo
+
+This library is developed and maintained by [Opteo](https://opteo.com), the Advertising Efficiency Manager (AEM) for paid media teams working across Google Ads, Meta Ads, Microsoft Advertising, LinkedIn Ads and TikTok Ads.
+
+Opteo brings together live account data, business context, skills, and specialist marketing tools in one workspace. Connect your marketing accounts, analyse your data with professional-grade tools, build expert marketing agents, and implement changes that increase ROAS.
+
+Learn more about [Opteo](https://opteo.com).
