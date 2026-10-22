@@ -1,9 +1,6 @@
 import { CancellableStream } from "google-gax";
 import axios from "axios";
-import { chain } from "stream-chain";
-import { parser, Parser } from "stream-json";
-
-import { streamArray } from "stream-json/streamers/StreamArray";
+import type { Duplex } from "stream";
 
 import { ClientOptions } from "./client";
 import {
@@ -32,6 +29,36 @@ import {
 import { googleAdsVersion } from "./version";
 
 const ROWS_PER_STREAMED_CHUNK = 10_000; // From experience, this is what can be expected from the API.
+
+type StreamPipeline = Duplex & AsyncIterable<unknown>;
+
+type StreamDependencies = {
+  chain: (stages: unknown[]) => StreamPipeline;
+  parser: (options?: Record<string, unknown>) => Duplex;
+  streamArray: () => Duplex;
+};
+
+let streamDependencies: Promise<StreamDependencies> | undefined;
+
+// Keep native ESM loading intact when this CommonJS SDK is exercised through
+// Jest's CommonJS transformer as well as in Node's runtime.
+const importEsm = Function("specifier", "return import(specifier)") as (
+  specifier: string
+) => Promise<any>;
+
+function getStreamDependencies(): Promise<StreamDependencies> {
+  return (streamDependencies ??= Promise.all([
+    importEsm("stream-chain"),
+    importEsm("stream-json"),
+    importEsm("stream-json/streamers/stream-array.js"),
+  ]).then(([streamChain, streamJson, streamArrayModule]) => ({
+    chain: (streamChain as { chain: StreamDependencies["chain"] }).chain,
+    parser: (streamJson as { parser: StreamDependencies["parser"] }).parser,
+    streamArray: (
+      streamArrayModule as { streamArray: StreamDependencies["streamArray"] }
+    ).streamArray,
+  })));
+}
 
 export class Customer extends ServiceFactory {
   constructor(
@@ -486,23 +513,27 @@ export class Customer extends ServiceFactory {
       const response = await axios(args);
 
       const stream = response.data as any;
+      const { chain, parser, streamArray } = await getStreamDependencies();
 
       // The options below help to make the stream less CPU intensive.
-      const parser = new Parser({
+      const jsonParser = parser({
         streamValues: false,
         streamKeys: false,
         packValues: true,
         packKeys: true,
       });
 
-      const pipeline = chain([stream, parser, streamArray()]);
+      const pipeline = chain([stream, jsonParser, streamArray()]);
       let count = 0;
 
       try {
         for await (const data of pipeline) {
+          const value = (data as {
+            value: { results?: unknown[]; summaryRow?: unknown };
+          }).value;
           const results =
-            data.value.results ??
-            (data.value.summaryRow ? [data.value.summaryRow] : undefined) ??
+            value.results ??
+            (value.summaryRow ? [value.summaryRow] : undefined) ??
             [];
 
           count += results.length;
@@ -521,7 +552,6 @@ export class Customer extends ServiceFactory {
         }
       } finally {
         pipeline.destroy();
-        parser.destroy();
         stream.destroy();
       }
 
@@ -547,6 +577,7 @@ export class Customer extends ServiceFactory {
     }
     // The error is a stream, so some effort is required to parse it.
     const stream = e.response.data as any;
+    const { chain, parser, streamArray } = await getStreamDependencies();
 
     const pipeline = chain([stream, parser(), streamArray()]);
 
@@ -557,7 +588,7 @@ export class Customer extends ServiceFactory {
     );
 
     // Only throw the first error.
-    pipeline.once("data", (data) => {
+    pipeline.once("data", (data: { value?: any }) => {
       if (data?.value?.error?.details?.[0]) {
         googleAdsFailure = new errors.GoogleAdsFailure(
           this.decamelizeKeysIfNeeded(data.value.error.details[0])
@@ -573,7 +604,7 @@ export class Customer extends ServiceFactory {
     // Must always reject.
     await new Promise<void>((_, reject) => {
       pipeline.on("end", () => reject(googleAdsFailure));
-      pipeline.on("error", (err) => reject(err));
+      pipeline.on("error", (err: Error) => reject(err));
     });
   }
 

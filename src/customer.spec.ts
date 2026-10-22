@@ -437,6 +437,44 @@ describe("search", () => {
   });
 });
 
+describe("queryStream", () => {
+  afterEach(() => {
+    jest.resetAllMocks();
+    axiosMock.reset();
+  });
+
+  it("parses chunked Readable responses without a Google Ads request", async () => {
+    const customer = newCustomer({});
+    mockGetAccessToken(customer);
+    axiosMock.onPost().reply(200, mockStream());
+
+    const rows: unknown[] = [];
+    for await (const row of customer.queryStream(mockGaqlQuery)) {
+      rows.push(row);
+    }
+
+    expect(rows).toEqual(mockQueryReturnValue);
+  });
+
+  it("reports an invalid chunked response through onStreamError", async () => {
+    const hooks: Hooks = { onStreamError: jest.fn() };
+    const customer = newCustomer(hooks);
+    mockGetAccessToken(customer);
+    axiosMock.onPost().reply(200, Readable.from(["{not-json"]));
+
+    const consume = async () => {
+      for await (const _row of customer.queryStream(mockGaqlQuery)) {
+        failTestIfExecuted();
+      }
+    };
+
+    await expect(consume()).rejects.toBeInstanceOf(Error);
+    expect(hooks.onStreamError).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.any(Error) })
+    );
+  });
+});
+
 describe("reportStream", () => {
   afterEach(() => {
     jest.resetAllMocks();
